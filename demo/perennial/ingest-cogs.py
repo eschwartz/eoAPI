@@ -1,10 +1,13 @@
 import datetime
 import json
+import os
 from os import path
 
+import fsspec
+import mercantile
 import pystac
 import rasterio
-import mercantile
+from pystac.extensions.projection import ProjectionExtension
 
 
 def get_cog_bounds(cog_url):
@@ -47,11 +50,11 @@ def quadkey_to_geometry(quadkey):
     return bbox, geometry
 
 
-def mosaic_to_collection(mosaic_file):
-    with open(mosaic_file) as f:
+def mosaic_to_collection(mosaic_file, out_path, resolution_meters):
+    with fsspec.open(mosaic_file) as f:
         mosaic = json.load(f)
 
-    mosaic_date = datetime.datetime.fromisoformat(mosaic.get("layers", {}).get("date", "2024-10-15"))
+    mosaic_date = datetime.datetime.fromisoformat(mosaic.get("layers", {}).get("date") or "2024-10-15")
     collection = pystac.Collection(
         id="atlas-soc",
         description=mosaic["description"],
@@ -61,6 +64,7 @@ def mosaic_to_collection(mosaic_file):
         )
     )
 
+    i = 0
     for quadkey, assets in mosaic["tiles"].items():
         bbox, geometry = quadkey_to_geometry(quadkey)
         item = pystac.Item(
@@ -75,11 +79,22 @@ def mosaic_to_collection(mosaic_file):
                 "cog",
                 pystac.Asset(href=asset_url, media_type=pystac.MediaType.COG)
             )
+
+            proj = ProjectionExtension.ext(item, add_if_missing=True)
+            proj.epsg = 3857
+            proj.resolution = [resolution_meters, resolution_meters]
         collection.add_item(item)
 
-        break   # TODO wip
+        i += 1
+        if i % 10 == 0:
+            print(f"{i} / {len(mosaic['tiles'])} tiles ingested")
 
-    collection.normalize_and_save("stac_catalog", pystac.CatalogType.SELF_CONTAINED)
+    collection.normalize_and_save(out_path, pystac.CatalogType.SELF_CONTAINED)
 
 
-mosaic_to_collection(path.join(path.dirname(__file__), "soc.mosaic.json"))
+mosaic_to_collection(
+    # path.join(path.dirname(__file__), "soc.mosaic.json"),
+    "s3://perennial-internal-web-ready-artifacts/vesta/production/82d12c7a/prism_precip__30yr_historic__mean/mosaic.json",
+    out_path=path.join(os.getcwd(), "soc_stac_catalog"),
+    resolution_meters=500
+)
