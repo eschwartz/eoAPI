@@ -1,6 +1,8 @@
 set -euo pipefail
 script_dir=$(dirname "$(readlink -f "$0")")
 
+echo "loading collection.json"
+
 pypgstac load collections \
   "${script_dir}/soc_stac_catalog/collection.json" \
     --dsn postgresql://username:password@0.0.0.0:5439/postgis \
